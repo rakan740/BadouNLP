@@ -1,0 +1,37 @@
+Dict = {
+    "经常":0.1,
+    "经":0.05,
+    "有":0.1,
+    "常":0.001,
+    "有意见":0.1,
+    "歧":0.001,
+    "意见":0.2,
+    "分歧":0.2,
+    "见":0.05,
+    "意":0.05,
+    "见分歧":0.05,
+    "分":0.1
+}
+
+sentence = "经常有意见分歧"
+
+#实现全切分函数，输出根据字典能够切分出的所有的切分方式
+def all_cut(sentence, Dict):
+    target = []
+    def backtrack(start, current):
+        if start == len(sentence):
+            target.append(current.copy())
+            return
+        for length in range(1, 4):  # 尝试切分长度1-3
+            end = start + length
+            if end > len(sentence):
+                continue
+            word = sentence[start:end]
+            if word in Dict:
+                current.append(word)
+                backtrack(end, current)
+                current.pop()
+    backtrack(0, [])
+    return target
+
+print(all_cut(sentence, Dict))
