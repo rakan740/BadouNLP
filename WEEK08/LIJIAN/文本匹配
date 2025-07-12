@@ -1,0 +1,85 @@
+class DataGenerator:
+
+    def __getitem__(self, index):
+        if self.data_type == "train":
+            # 返回三元组结构：(anchor, positive, negative)
+            return self.random_train_sample()
+        else:
+            return self.data[index]
+
+    def random_train_sample(self):
+        # 返回独立张量而非列表
+        standard_question_index = list(self.knwb.keys())
+        p, n = random.sample(standard_question_index, 2)
+        
+        if len(self.knwb[p]) >= 2:
+            s1, s2 = random.sample(self.knwb[p], 2)
+        else:
+            s1 = s2 = self.knwb[p][0]
+        
+        s3 = random.choice(self.knwb[n])
+        
+        # 返回元组结构
+        return (s1, s2, s3)
+
+
+        import torch.nn as nn
+
+
+
+class TextEmbeddingModel(nn.Module):
+    def __init__(self, vocab_size, embedding_dim=128, hidden_dim=64):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.encoder = nn.Sequential(
+            nn.Linear(embedding_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+    
+    def forward(self, x):
+        # 输入形状：(batch_size, seq_len)
+        # 输出形状：(batch_size, hidden_dim)
+        x = self.embedding(x)          # (batch, seq, emb)
+        x = x.mean(dim=1)              # 平均池化获取句向量
+        return self.encoder(x)
+
+
+
+# 训练配置示例
+config = {
+    "vocab_size": 10000,
+    "embedding_dim": 128,
+    "hidden_dim": 64,
+    "batch_size": 32,
+    "max_length": 128,
+    "margin": 1.0
+}
+
+# 初始化模型和优化器
+model = TextEmbeddingModel(config["vocab_size"], 
+                          config["embedding_dim"], 
+                          config["hidden_dim"])
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+criterion = nn.TripletMarginLoss(margin=config["margin"], p=2)
+
+# 训练循环示例
+for epoch in range(epochs):
+    for batch in train_loader:
+        anchor, positive, negative = batch
+        anchor = anchor.to(device)
+        positive = positive.to(device)
+        negative = negative.to(device)
+        
+        # 前向传播
+        anchor_emb = model(anchor)
+        positive_emb = model(positive)
+        negative_emb = model(negative)
+        
+        # 计算损失
+        loss = criterion(anchor_emb, positive_emb, negative_emb)
+        
+        # 反向传播
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
