@@ -1,0 +1,105 @@
+# 安装必要库（需Python 3.8+）
+!pip install transformers datasets seqeval torch
+
+# 导入核心模块
+from datasets import load_dataset, ClassLabel
+from transformers import (
+    BertTokenizerFast, BertForTokenClassification,
+    TrainingArguments, Trainer, DataCollatorForTokenClassification
+)
+
+
+# 加载CoNLL-2003数据集（官方标注标准）
+dataset = load_dataset("conll2003")
+labels = dataset["train"].features["ner_tags"].feature.names
+
+# 定义标签映射（关键参数）
+label2id = {label: id for id, label in enumerate(labels)}
+id2label = {id: label for label, id in label2id.items()}
+
+# 初始化BERT分词器
+tokenizer = BertTokenizerFast.from_pretrained("bert-base-cased")
+
+# 自定义截断策略（避免长文本OOM）
+def tokenize_and_align_labels(examples):
+    tokenized_inputs = tokenizer(
+        examples["tokens"], truncation=True, is_split_into_words=True,
+        max_length=512, padding="max_length"
+    )
+    labels = []
+    for i, label in enumerate(examples["ner_tags"]):
+        word_ids = tokenized_inputs.word_ids(batch_index=i)
+        previous_word_idx = None
+        label_ids = []
+        for word_idx in word_ids:
+            if word_idx is None:
+                label_ids.append(-100)  # 忽略特殊token
+            elif word_idx != previous_word_idx:
+                label_ids.append(label[word_idx])
+            else:
+                label_ids.append(-100)  # 同一词的子词用-100
+            previous_word_idx = word_idx
+        labels.append(label_ids)
+    tokenized_inputs["labels"] = labels
+    return tokenized_inputs
+
+# 应用预处理
+tokenized_datasets = dataset.map(
+    tokenize_and_align_labels,
+    batched=True,
+    remove_columns=dataset["train"].column_names
+)
+
+# 加载预训练模型
+model = BertForTokenClassification.from_pretrained(
+    "bert-base-cased",
+    num_labels=len(labels),
+    id2label=id2label,
+    label2id=label2id
+)
+
+# 训练参数设置（建议配置）
+training_args = TrainingArguments(
+    output_dir="./results",
+    evaluation_strategy="epoch",
+    learning_rate=2e-5,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=64,
+    num_train_epochs=3,
+    weight_decay=0.01,
+    push_to_hub=False
+)
+
+# 初始化训练器
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_datasets["train"],
+    eval_dataset=tokenized_datasets["validation"],
+    data_collator=DataCollatorForTokenClassification(tokenizer),
+    tokenizer=tokenizer
+)
+
+# 执行训练
+trainer.train()
+
+# 评估指标计算
+from seqeval.metrics import classification_report
+
+# 预测验证集
+predictions, labels, _ = trainer.predict(tokenized_datasets["validation"])
+preds = np.argmax(predictions, axis=2)
+
+# 转换标签
+true_labels = [
+    [labels[id] for id in label_id if id != -100]
+    for label_id in labels
+]
+pred_labels = [
+    [id2label[pred] for (pred, lab) in zip(prediction, label_id) if lab != -100]
+    for prediction, label_id in zip(preds, labels)
+]
+
+# 输出评估报告
+print(classification_report(true_labels, pred_labels))
+
